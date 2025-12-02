@@ -1,0 +1,181 @@
+{
+  "name": "codeping-pr-watcher",
+  "displayName": "CodePing Pull Request Watcher",
+  "description": "Alerts you when GitHub or GitHub Enterprise pull requests need your review with visual and audible cues.",
+  "version": "0.9.61",
+  "publisher": "ShinyPennySoftware",
+  "author": {
+    "name": "Fredy Teyssedou"
+  },
+  "keywords": [
+    "codeping", "pullrequest", "PR", "github", "code watcher", "pr monitor"
+  ],
+  "preview": true,
+  "license": "MIT",
+  "sponsor": {
+    "url": "https://ko-fi.com/tastydew"
+  },
+  "icon": "media/logo.png",
+  "galleryBanner": {
+    "color": "#2c202e",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tastydew/codeping-vscode.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:codeping.showSignIn",
+    "onCommand:codeping.openPullRequestView",
+    "onCommand:codeping.logout",
+    "onCommand:codeping.login.github",
+    "onCommand:codeping.login.enterprise",
+    "onCommand:codeping.refreshPullRequests",
+    "onCommand:codeping.chooseReminderSoundFile",
+    "onCommand:codeping.chooseSoundFile",
+    "onView:codepingPullRequests",
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeping.login.github",
+        "title": "CodePing: Sign in to GitHub"
+      },
+      {
+        "command": "codeping.login.enterprise",
+        "title": "CodePing: Sign in to GitHub Enterprise"
+      },
+      {
+        "command": "codeping.showSignIn",
+        "title": "CodePing: Sign in"
+      },
+      {
+        "command": "codeping.openPullRequestView",
+        "title": "CodePing: Show Pull Request View"
+      },
+      {
+        "command": "codeping.logout",
+        "title": "CodePing: Sign out / Clear Credentials"
+      },
+      {
+        "command": "codeping.refreshPullRequests",
+        "title": "CodePing: Refresh Review Requests"
+      },
+      {
+        "command": "codeping.toggleMute",
+        "title": "CodePing: Toggle Sound Alerts"
+      },
+      {
+        "command": "codeping.chooseSoundFile",
+        "title": "CodePing: Choose Alert Sound File"
+      },
+      {
+        "command": "codeping.chooseReminderSoundFile",
+        "title": "CodePing: Choose Reminder Sound File"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codepingReviewContainer",
+          "title": "Pull Request Watcher",
+          "icon": "media/logo_bw.png"
+        }
+      ]
+    },
+    "views": {
+      "codepingReviewContainer": [
+        {
+          "id": "codepingPullRequests",
+          "name": "Assigned Pull Requests"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CodePing Pull Request Watcher",
+      "properties": {
+        "codeping.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 15,
+          "minimum": 15,
+          "description": "How often (in seconds) to check for new pull requests where you are a reviewer."
+        },
+        "codeping.alerts.enableSound": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable audible alerts when new review requests are found."
+        },
+        "codeping.alerts.muted": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start muted. You can toggle mute via the command palette."
+        },
+        "codeping.alerts.soundPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to a custom sound file for alerts. Leave empty to disable.",
+          "markdownDescription": "Absolute path to a custom sound file for alerts. Leave empty to disable. [Browse](command:codeping.chooseSoundFile)",
+          "format": "file"
+        },
+        "codeping.github.enterpriseBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL for GitHub Enterprise (e.g. https://github.mycompany.com/api/v3). Leave blank to use public GitHub."
+        },
+        "codeping.github.enterpriseTokenSecretName": {
+          "type": "string",
+          "default": "codeping-enterprise-token",
+          "description": "Secret storage key used to save the GitHub Enterprise token."
+        },
+        "codeping.reminders.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show periodic reminders when you have open review requests."
+        },
+        "codeping.reminders.intervalMinutes": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "description": "How often (in minutes) to remind you about open review requests."
+        },
+        "codeping.reminders.soundPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to a custom reminder sound. Leave empty to disable reminder sounds.",
+          "markdownDescription": "Absolute path to a custom reminder sound. Leave empty to disable reminder sounds. [Browse](command:codeping.chooseReminderSoundFile)",
+          "format": "file"
+        },
+        "codeping.account.logout": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Use [CodePing: Sign out / Clear Credentials](command:codeping.logout) to remove stored tokens and reset authentication. (Value is ignored.)",
+          "description": "Convenience entry to sign out and clear stored credentials."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint . --ext ts",
+    "test": "echo \"Add tests with @vscode/test-electron\" && exit 0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@octokit/rest": "^20.0.2",
+    "play-sound": "^1.1.5"
+  }
+}
