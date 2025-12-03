@@ -6,17 +6,20 @@ import { AlertManager } from "./alertManager";
 import { AuthContext, PullRequestSummary } from "./types";
 
 const SCOPES = ["repo", "read:org"];
+const IGNORED_KEY = "codeping.ignoredPullRequests";
 
 let refreshTimer: NodeJS.Timeout | undefined;
 let reminderTimer: NodeJS.Timeout | undefined;
 let lastSeenPrIds = new Set<number>();
 let hasFetchedOnce = false;
 let lastKnownPullRequests: PullRequestSummary[] = [];
+let ignoredPullRequestIds = new Set<number>();
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const githubClient = new GitHubClient();
   const pullRequestProvider = new PullRequestProvider();
   const alertManager = new AlertManager(context);
+  ignoredPullRequestIds = loadIgnoredPullRequests(context);
 
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBar.command = "codeping.showSignIn";
@@ -30,24 +33,52 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand("codeping.login.github", async () => {
       await loginWithGitHub(githubClient);
-      await refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false);
+      await refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false, context);
     }),
     vscode.commands.registerCommand("codeping.login.enterprise", async () => {
       await loginWithEnterprise(context, githubClient);
-      await refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false);
+      await refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false, context);
     }),
     vscode.commands.registerCommand("codeping.logout", async () => {
       await logout(context, githubClient, pullRequestProvider, statusBar);
+    }),
+    vscode.commands.registerCommand("codeping.ignorePullRequest", async (item: any) => {
+      const pr: PullRequestSummary | undefined = item?.pr ?? item;
+      if (!pr || typeof pr.id !== "number") {
+        return;
+      }
+      if (ignoredPullRequestIds.has(pr.id)) {
+        vscode.window.showInformationMessage("This pull request is already ignored.");
+        return;
+      }
+      ignoredPullRequestIds.add(pr.id);
+      await saveIgnoredPullRequests(context, ignoredPullRequestIds);
+      await refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false, context);
+      vscode.window.showInformationMessage(`Ignored pull request #${pr.number} in ${pr.repository}.`);
+    }),
+    vscode.commands.registerCommand("codeping.unignorePullRequest", async (item: any) => {
+      const pr: PullRequestSummary | undefined = item?.pr ?? item;
+      if (!pr || typeof pr.id !== "number") {
+        return;
+      }
+      if (!ignoredPullRequestIds.has(pr.id)) {
+        vscode.window.showInformationMessage("This pull request is not currently ignored.");
+        return;
+      }
+      ignoredPullRequestIds.delete(pr.id);
+      await saveIgnoredPullRequests(context, ignoredPullRequestIds);
+      await refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false, context);
+      vscode.window.showInformationMessage(`Un-ignored pull request #${pr.number} in ${pr.repository}.`);
     }),
     vscode.commands.registerCommand("codeping.showSignIn", async () => {
       await promptSignIn(context, githubClient, pullRequestProvider, alertManager, statusBar);
     }),
     vscode.commands.registerCommand("codeping.openPullRequestView", async () => {
       await vscode.commands.executeCommand("workbench.view.extension.codepingReviewContainer");
-      await refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false);
+      await refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false, context);
     }),
     vscode.commands.registerCommand("codeping.refreshPullRequests", async () => {
-      await refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, true);
+      await refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, true, context);
     }),
     vscode.commands.registerCommand("codeping.toggleMute", async () => {
       const config = vscode.workspace.getConfiguration("codeping.alerts");
@@ -94,7 +125,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (event.affectsConfiguration("codeping.refreshIntervalSeconds")) {
-        restartTimer(() => refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false));
+        restartTimer(() =>
+          refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false, context)
+        );
       }
       if (
         event.affectsConfiguration("codeping.reminders.enabled") ||
@@ -107,8 +140,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   await restoreAuth(context, githubClient);
-  restartTimer(() => refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false));
-  await refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false);
+  restartTimer(() => refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false, context));
+  await refreshPullRequests(githubClient, pullRequestProvider, alertManager, statusBar, false, context);
   restartReminderTimer(() => remindOpenPullRequests(githubClient, statusBar, alertManager));
 
   context.subscriptions.push(
@@ -133,6 +166,7 @@ export function deactivate(): void {
   lastKnownPullRequests = [];
   lastSeenPrIds = new Set();
   hasFetchedOnce = false;
+  ignoredPullRequestIds = new Set();
 }
 
 async function loginWithGitHub(client: GitHubClient): Promise<void> {
@@ -220,30 +254,61 @@ function restartReminderTimer(onTick: () => Promise<void>): void {
   }, minutes * 60 * 1000);
 }
 
+export function splitIgnoredPullRequests(
+  allPrs: PullRequestSummary[],
+  ignoredIds: Set<number>
+): { openPrs: PullRequestSummary[]; ignoredPrs: PullRequestSummary[]; cleanedIgnored: Set<number> } {
+  const allIds = new Set(allPrs.map((pr) => pr.id));
+  const cleanedIgnored = new Set(Array.from(ignoredIds).filter((id) => allIds.has(id)));
+  const openPrs: PullRequestSummary[] = [];
+  const ignoredPrs: PullRequestSummary[] = [];
+
+  for (const pr of allPrs) {
+    if (cleanedIgnored.has(pr.id)) {
+      ignoredPrs.push(pr);
+    } else {
+      openPrs.push(pr);
+    }
+  }
+
+  return { openPrs, ignoredPrs, cleanedIgnored };
+}
+
 async function refreshPullRequests(
   client: GitHubClient,
   provider: PullRequestProvider,
   alertManager: AlertManager,
   statusBar: vscode.StatusBarItem,
-  surfaceErrors: boolean
+  surfaceErrors: boolean,
+  context: vscode.ExtensionContext
 ): Promise<void> {
   if (!client.isAuthenticated()) {
     statusBar.text = "$(bell-slash) Sign in";
     statusBar.tooltip = "Sign in to GitHub or GitHub Enterprise to see review requests.";
     statusBar.command = "codeping.showSignIn";
-    provider.setPullRequests([]);
+    provider.setPullRequests([], []);
     return;
   }
 
   try {
-    const prs = await client.fetchReviewRequests();
-    provider.setPullRequests(prs);
-    statusBar.text = `$(bell) Reviews: ${prs.length}`;
-    statusBar.tooltip = prs.length ? `You have ${prs.length} open review request(s).` : "No open review requests.";
-    statusBar.command = "codeping.openPullRequestView";
-    lastKnownPullRequests = prs;
+    const allPrs = await client.fetchReviewRequests();
+    const { openPrs, ignoredPrs, cleanedIgnored } = splitIgnoredPullRequests(allPrs, ignoredPullRequestIds);
+    if (cleanedIgnored.size !== ignoredPullRequestIds.size) {
+      ignoredPullRequestIds = cleanedIgnored;
+      await saveIgnoredPullRequests(context, ignoredPullRequestIds);
+    } else {
+      ignoredPullRequestIds = cleanedIgnored;
+    }
 
-    await maybeAlert(prs, alertManager);
+    provider.setPullRequests(openPrs, ignoredPrs);
+    statusBar.text = `$(bell) Reviews: ${openPrs.length}`;
+    statusBar.tooltip = openPrs.length
+      ? `You have ${openPrs.length} open review request(s).`
+      : "No open review requests.";
+    statusBar.command = "codeping.openPullRequestView";
+    lastKnownPullRequests = openPrs;
+
+    await maybeAlert(openPrs, alertManager);
   } catch (error: any) {
     statusBar.text = "$(bell-slash) Error";
     if (surfaceErrors) {
@@ -336,7 +401,7 @@ async function promptSignIn(
     await loginWithEnterprise(context, client);
   }
 
-  await refreshPullRequests(client, provider, alertManager, statusBar, false);
+  await refreshPullRequests(client, provider, alertManager, statusBar, false, context);
 }
 
 async function remindOpenPullRequests(
@@ -376,6 +441,15 @@ async function remindOpenPullRequests(
   }
 }
 
+export function loadIgnoredPullRequests(context: vscode.ExtensionContext): Set<number> {
+  const ids = context.globalState.get<number[]>(IGNORED_KEY, []);
+  return new Set(ids);
+}
+
+export async function saveIgnoredPullRequests(context: vscode.ExtensionContext, ids: Set<number>): Promise<void> {
+  await context.globalState.update(IGNORED_KEY, Array.from(ids));
+}
+
 async function logout(
   context: vscode.ExtensionContext,
   client: GitHubClient,
@@ -403,7 +477,9 @@ async function logout(
   lastKnownPullRequests = [];
   lastSeenPrIds = new Set();
   hasFetchedOnce = false;
-  provider.setPullRequests([]);
+  ignoredPullRequestIds = new Set();
+  await saveIgnoredPullRequests(context, ignoredPullRequestIds);
+  provider.setPullRequests([], []);
   statusBar.text = "$(bell-slash) Sign in";
   statusBar.tooltip = "Sign in to GitHub or GitHub Enterprise to see review requests.";
   statusBar.command = "codeping.showSignIn";

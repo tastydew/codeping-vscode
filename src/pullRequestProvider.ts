@@ -1,8 +1,18 @@
 import * as vscode from "vscode";
 import { PullRequestSummary } from "./types";
 
+type SectionKind = "open" | "ignored";
+
+class SectionTreeItem extends vscode.TreeItem {
+  constructor(readonly kind: SectionKind, label: string) {
+    super(label, vscode.TreeItemCollapsibleState.Expanded);
+    this.contextValue = `codeping.section.${kind}`;
+    this.iconPath = new vscode.ThemeIcon(kind === "open" ? "bell" : "eye-closed");
+  }
+}
+
 class RepoTreeItem extends vscode.TreeItem {
-  constructor(readonly repo: string) {
+  constructor(readonly kind: SectionKind, readonly repo: string) {
     super(repo, vscode.TreeItemCollapsibleState.Collapsed);
     this.contextValue = "codeping.repo";
     this.iconPath = new vscode.ThemeIcon("repo");
@@ -10,11 +20,11 @@ class RepoTreeItem extends vscode.TreeItem {
 }
 
 class PullRequestTreeItem extends vscode.TreeItem {
-  constructor(readonly pr: PullRequestSummary) {
+  constructor(readonly pr: PullRequestSummary, readonly kind: SectionKind) {
     super(`#${pr.number} ${pr.title}`, vscode.TreeItemCollapsibleState.Collapsed);
     this.description = pr.author;
     this.tooltip = `#${pr.number} in ${pr.repository}\nUpdated: ${new Date(pr.updatedAt).toLocaleString()}`;
-    this.contextValue = "codeping.pullRequest";
+    this.contextValue = kind === "ignored" ? "codeping.pullRequest.ignored" : "codeping.pullRequest";
     this.command = {
       command: "vscode.open",
       title: "Open Pull Request",
@@ -33,24 +43,24 @@ class InfoTreeItem extends vscode.TreeItem {
   }
 }
 
+interface GroupedData {
+  open: Map<string, PullRequestSummary[]>;
+  ignored: Map<string, PullRequestSummary[]>;
+}
+
 /**
- * Tree provider that groups PRs by repository with expandable detail rows.
+ * Tree provider that groups PRs by repository with expandable detail rows,
+ * showing open and ignored sections separately.
  */
 export class PullRequestProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
-  private grouped: Map<string, PullRequestSummary[]> = new Map();
+  private grouped: GroupedData = { open: new Map(), ignored: new Map() };
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<vscode.TreeItem | undefined | null | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  setPullRequests(prs: PullRequestSummary[]): void {
-    const next = new Map<string, PullRequestSummary[]>();
-    for (const pr of prs) {
-      const key = pr.repository || "unknown";
-      if (!next.has(key)) {
-        next.set(key, []);
-      }
-      next.get(key)!.push(pr);
-    }
-    this.grouped = next;
+  setPullRequests(openPrs: PullRequestSummary[], ignoredPrs: PullRequestSummary[]): void {
+    const open = groupByRepo(openPrs);
+    const ignored = groupByRepo(ignoredPrs);
+    this.grouped = { open, ignored };
     this._onDidChangeTreeData.fire();
   }
 
@@ -60,13 +70,24 @@ export class PullRequestProvider implements vscode.TreeDataProvider<vscode.TreeI
 
   getChildren(element?: vscode.TreeItem): Thenable<vscode.TreeItem[]> {
     if (!element) {
-      const repos = Array.from(this.grouped.keys()).sort();
-      return Promise.resolve(repos.map((repo) => new RepoTreeItem(repo)));
+      const roots: vscode.TreeItem[] = [];
+      roots.push(new SectionTreeItem("open", "Open Review Requests"));
+      if (this.grouped.ignored.size) {
+        roots.push(new SectionTreeItem("ignored", "Ignored Pull Requests"));
+      }
+      return Promise.resolve(roots);
+    }
+
+    if (element instanceof SectionTreeItem) {
+      const map = element.kind === "open" ? this.grouped.open : this.grouped.ignored;
+      const repos = Array.from(map.keys()).sort();
+      return Promise.resolve(repos.map((repo) => new RepoTreeItem(element.kind, repo)));
     }
 
     if (element instanceof RepoTreeItem) {
-      const prs = this.grouped.get(element.repo) ?? [];
-      return Promise.resolve(prs.map((pr) => new PullRequestTreeItem(pr)));
+      const map = element.kind === "open" ? this.grouped.open : this.grouped.ignored;
+      const prs = map.get(element.repo) ?? [];
+      return Promise.resolve(prs.map((pr) => new PullRequestTreeItem(pr, element.kind)));
     }
 
     if (element instanceof PullRequestTreeItem) {
@@ -84,6 +105,18 @@ export class PullRequestProvider implements vscode.TreeDataProvider<vscode.TreeI
 
     return Promise.resolve([]);
   }
+}
+
+function groupByRepo(prs: PullRequestSummary[]): Map<string, PullRequestSummary[]> {
+  const next = new Map<string, PullRequestSummary[]>();
+  for (const pr of prs) {
+    const key = pr.repository || "unknown";
+    if (!next.has(key)) {
+      next.set(key, []);
+    }
+    next.get(key)!.push(pr);
+  }
+  return next;
 }
 
 function formatDate(value: string): string {

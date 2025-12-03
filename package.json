@@ -2,7 +2,7 @@
   "name": "codeping-pr-watcher",
   "displayName": "CodePing Pull Request Watcher",
   "description": "Alerts you when GitHub or GitHub Enterprise pull requests need your review with visual and audible cues.",
-  "version": "0.9.61",
+  "version": "1.0.0",
   "publisher": "ShinyPennySoftware",
   "author": {
     "name": "Fredy Teyssedou"
@@ -10,7 +10,7 @@
   "keywords": [
     "codeping", "pullrequest", "PR", "github", "code watcher", "pr monitor"
   ],
-  "preview": true,
+  "preview": false,
   "license": "MIT",
   "sponsor": {
     "url": "https://ko-fi.com/tastydew"
@@ -31,15 +31,6 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:codeping.showSignIn",
-    "onCommand:codeping.openPullRequestView",
-    "onCommand:codeping.logout",
-    "onCommand:codeping.login.github",
-    "onCommand:codeping.login.enterprise",
-    "onCommand:codeping.refreshPullRequests",
-    "onCommand:codeping.chooseReminderSoundFile",
-    "onCommand:codeping.chooseSoundFile",
-    "onView:codepingPullRequests",
     "onStartupFinished"
   ],
   "main": "./out/extension.js",
@@ -80,8 +71,30 @@
       {
         "command": "codeping.chooseReminderSoundFile",
         "title": "CodePing: Choose Reminder Sound File"
+      },
+      {
+        "command": "codeping.ignorePullRequest",
+        "title": "Ignore Pull Request"
+      },
+      {
+        "command": "codeping.unignorePullRequest",
+        "title": "Un-ignore Pull Request"
       }
     ],
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "codeping.ignorePullRequest",
+          "when": "view == codepingPullRequests && viewItem == codeping.pullRequest",
+          "group": "navigation@2"
+        },
+        {
+          "command": "codeping.unignorePullRequest",
+          "when": "view == codepingPullRequests && viewItem == codeping.pullRequest.ignored",
+          "group": "navigation@2"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -167,7 +180,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint . --ext ts",
-    "test": "echo \"Add tests with @vscode/test-electron\" && exit 0"
+    "test": "npm run compile && node --test ./out/test/**/*.test.js"
   },
   "devDependencies": {
     "@types/node": "^18.19.0",

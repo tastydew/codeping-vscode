@@ -48,3 +48,9 @@ Get visual and audible alerts when GitHub or GitHub Enterprise pull requests nee
 3. Update settings or run the commands from the palette to sign in and test.
 
 The code is TypeScript-first, with comments near the non-obvious pieces (authentication, sound playback, polling) to help future contributors.
+
+## Release history
+- **1.0.0**
+  - Initial public release: GitHub/GitHub Enterprise auth, periodic polling, status bar, tree view grouped by repo.
+  - Alerts with optional custom sounds and reminder notifications (configurable/muteable).
+  - Ignore/un-ignore PRs with a dedicated ignored section; ignored items auto-prune when closed.
